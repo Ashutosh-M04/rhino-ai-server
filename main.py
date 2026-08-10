@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import List, Optional
 
 app = FastAPI(title="Rhino AI Automation Server")
 
@@ -43,8 +44,9 @@ class StairDimensions(BaseModel):
 class PayloadRequest(BaseModel):
     session_id: str
     user_prompt: str
+    previous_error: str = ""  # Added to match Rhino UI payload
     dimensions: StairDimensions
-    images: list = [] # Server now accepts a list of image paths
+    images: List[str] = [] 
     
 class LicenseRequest(BaseModel):
     key: str
@@ -68,14 +70,20 @@ async def validate_license(request: LicenseRequest):
 @app.post("/api/generate-task")
 async def generate_task(request: PayloadRequest):
     try:
+        # 1. Load the raw text file (No .format() so it doesn't break on Python brackets)
         template_text = load_skill_template("staircase_skill.txt")
-        final_instructions = template_text.format(
-            session_id=request.session_id,
-            user_prompt=request.user_prompt,
-            tread_width=request.dimensions.tread_width,
-            riser_height=request.dimensions.riser_height,
-            total_height=request.dimensions.total_height
-        )
+        
+        # 2. Safely construct the final prompt by appending the data
+        final_instructions = f"""
+{template_text}
+
+--- CURRENT TASK PARAMETERS ---
+User Prompt: {request.user_prompt}
+Tread Width: {request.dimensions.tread_width}
+Riser Height: {request.dimensions.riser_height}
+Total Height: {request.dimensions.total_height}
+Previous Error (if any): {request.previous_error}
+"""
         return {
             "status": "success",
             "session_id": request.session_id,
