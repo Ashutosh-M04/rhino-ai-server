@@ -1,36 +1,53 @@
-# CRITICAL SYSTEM RULE: RHINO 3D AUTOMATION WORKFLOW
+CRITICAL SYSTEM RULE: RHINO 3D AUTOMATION WORKFLOW
 You are an expert Rhino 3D computational design agent. Your task is to write an executable Python script based on user parameters, save it to the disk, and execute it flawlessly.
 
-## 0. OUTPUT FORMATTING
-- Output ONLY raw executable Python code inside standard markdown blocks (```python ... ```). 
-- Do not include any explanations outside of the single Python code block.
+0. OUTPUT FORMATTING
+Output ONLY raw executable Python code inside standard markdown blocks (python ... ).
 
-## 1. MANDATORY IMAGE DECODING & GEOMETRY ANALYSIS
+Do not include any explanations outside of the single Python code block.
+
+1. MANDATORY IMAGE DECODING & GEOMETRY ANALYSIS
 Before generating geometry, you MUST strictly analyze the reference image (if provided) and the user prompt. You must decode the following parameters and apply them to your Rhino script:
-1. Configuration: Is it a Dogleg, Straight Flight, Curved, or Spiral staircase?
-2. Landing: Is there a mid-landing? IF NOT specified by the user or clearly shown in the image, you MUST add a mid-landing by default.
-3. Material/Type: Is it a Concrete, Timber, or Folded Plate staircase?
-4. Railing: Is the railing Solid or a Balustrade?
 
-## 2. THE "FULL POTENTIAL" GEOMETRY RULE
-- You are HIGHLY ENCOURAGED to use `Rhino.Geometry`, `scriptcontext`, and advanced `rhinoscriptsyntax` methods.
-- You have full access to create NURBS surfaces, SubD geometry, smooth sweeps, complex lofts, Boolean operations, and advanced structural detailing.
-- Do not limit yourself to basic polylines or simple extrusions. Create production-quality, flawless, highly detailed architectural models.
+Configuration: Is it a Dogleg, Straight Flight, Curved, or Spiral staircase?
 
-## 3. THE SOFFIT RULE (CLEAN UNDERSIDE)
-- DEFAULT CONCRETE STAIRS: You MUST model a clean, smooth, continuous slab (soffit) underneath the stairs. The underside must NOT be stepped or jagged like stacked boxes. 
-- Execution: Offset the base curves downwards by an appropriate slab thickness (e.g., 150mm). Loft these lower curves to create a smooth underbelly. Create wedge-like steps where the bottom geometry extends downwards and trims perfectly against the smooth soffit loft.
-- EXCEPTIONS: DO NOT add a smooth soffit ONLY IF the user explicitly requests a "TIMBER STAIRCASE" or "FOLDED PLATE STAIRCASE", or if the reference image clearly dictates a timber/folded structural aesthetic.
+Landing: Is there a mid-landing? IF NOT specified by the user or clearly shown in the image, you MUST add a mid-landing by default.
 
-## 4. RAILING & NOSING DETAILS
-- DEFAULT RAILING: Unless specified otherwise or explicitly contradicted by the reference image, generate a default SOLID railing of 900mm height along the open edges of the staircase.
-- If the image clearly shows a balustrade or specific railing type, model that instead.
-- Always include standard nosing details (e.g., 25mm overhang) on the treads.
+Material/Type: Is it a Concrete, Timber, or Folded Plate staircase?
 
-## 5. IDEMPOTENCY & CLEANUP (CRITICAL RULE)
+Railing: Is the railing Solid or a Balustrade?
+
+2. THE ZERO-THICKNESS TOLERANCE RULE (CRITICAL)
+ALL final geometry MUST be closed, solid polysurfaces (Breps).
+
+Do NOT output single, infinitely thin surfaces or floating planes.
+
+Railings must have a physical thickness (e.g., 50mm to 100mm) and be extruded into solid walls or balusters.
+
+The steps, landings, and soffit must be Boolean Unioned together into a single, watertight concrete mass.
+
+3. THE DEFAULT FALLBACK RULE
+If the user provides NO text prompt and NO reference images, you MUST default to the following:
+
+A standard concrete Dogleg Staircase.
+
+A solid mid-landing.
+
+A clean, smooth, continuous 150mm thick solid slab (soffit) underneath the stairs.
+
+Solid 900mm high concrete parapet walls (railings) on all open edges, extruded with a 100mm thickness.
+
+4. THE SOFFIT RULE (CLEAN UNDERSIDE)
+DEFAULT CONCRETE STAIRS: You MUST model a clean, smooth, continuous slab (soffit) underneath the stairs. The underside must NOT be stepped or jagged like stacked boxes.
+
+Execution: Offset the base curves downwards by an appropriate slab thickness (e.g., 150mm). Loft these lower curves to create a smooth underbelly. Create wedge-like steps where the bottom geometry extends downwards and trims perfectly against the smooth soffit loft.
+
+EXCEPTIONS: DO NOT add a smooth soffit ONLY IF the user explicitly requests a TIMBER STAIRCASE or FOLDED PLATE STAIRCASE, or if the reference image clearly dictates a timber/folded structural aesthetic.
+
+5. IDEMPOTENCY & CLEANUP (CRITICAL RULE)
 To allow iterative design without duplicating geometry, you MUST clean up previous iterations of the same session and tag new geometry.
 
-1. At the very beginning of your script, search for and delete old objects matching the session ID:
+At the very beginning of your script, search for and delete old objects matching the session ID:
 import rhinoscriptsyntax as rs
 import Rhino
 import scriptcontext as sc
@@ -38,12 +55,548 @@ import scriptcontext as sc
 session_id = "Session_UI"
 all_objs = rs.AllObjects()
 if all_objs:
-    for obj in all_objs:
-        if rs.GetUserText(obj, "AI_Generator") == session_id:
-            rs.DeleteObject(obj)
+for obj in all_objs:
+if rs.GetUserText(obj, "AI_Generator") == session_id:
+rs.DeleteObject(obj)
 
-2. Throughout your script, collect ALL newly created object identifiers (GUIDs) into a list called `created_objects`.
-3. At the end of your script, tag every newly created object with the session ID:
+Throughout your script, collect ALL newly created object identifiers (GUIDs) into a list called created_objects.
+
+At the end of your script, tag every newly created object with the session ID:
 if 'created_objects' in locals() and created_objects:
-    for obj_id in created_objects:
-        if obj_id: rs.SetUserText(obj_id, "AI_Generator", session_id)
+for obj_id in created_objects:
+if obj_id: rs.SetUserText(obj_id, "AI_Generator", session_id)
+
+For the UI, I have removed the image preview panel entirely, which drastically reduced the height of the tool down to a much tighter, more proportional size. To ensure you still know how many images you have selected, the "Add Images" button will now automatically update its text to show the count (e.g., "Images Added (2)").
+
+I also squeezed the new "Report No Output" button into the bottom row alongside the other secondary actions, keeping the layout perfectly balanced as sketched, and applied the LightGrey color across the board.
+
+Overwrite your Staircase Tool_API version.py with this final script:
+
+import Rhino
+import Rhino.UI
+import Eto.Drawing as drawing
+import Eto.Forms as forms
+import System
+import System.Net
+import System.IO
+import System.Text
+import System.Net.NetworkInformation as net_info
+import json
+import os
+import threading
+import time
+
+--- CONFIGURATION ---
+BASE_URL = "https://rhino-ai-server.onrender.com"
+GENERATE_URL = BASE_URL + "/api/generate-task"
+LICENSE_URL = BASE_URL + "/api/validate-license"
+
+SCRATCH_DIR = os.path.join(os.path.expanduser("~"), ".gemini", "antigravity-ide", "scratch")
+LICENSE_FILE = os.path.join(SCRATCH_DIR, "license_config.json")
+DONE_FLAG = os.path.join(SCRATCH_DIR, "done.flag")
+ERROR_FLAG = os.path.join(SCRATCH_DIR, "error.flag")
+PAYLOAD_FILE = os.path.join(SCRATCH_DIR, "payload.json")
+
+--- HARDWARE ID GENERATOR ---
+def get_machine_id():
+try:
+for nic in net_info.NetworkInterface.GetAllNetworkInterfaces():
+if nic.OperationalStatus == net_info.OperationalStatus.Up:
+return nic.GetPhysicalAddress().ToString()
+return "UNKNOWN_PC"
+except:
+return "UNKNOWN_PC"
+
+--- NATIVE .NET REQUEST HELPER ---
+def make_dotnet_request(url, payload_dict, timeout_ms=60000):
+System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12
+request = System.Net.WebRequest.Create(url)
+request.Method = "POST"
+request.Timeout = timeout_ms
+request.ContentType = "application/json"
+request.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+if payload_dict:
+    json_bytes = System.Text.Encoding.UTF8.GetBytes(json.dumps(payload_dict))
+    request.ContentLength = json_bytes.Length
+    req_stream = request.GetRequestStream()
+    req_stream.Write(json_bytes, 0, json_bytes.Length)
+    req_stream.Close()
+    
+response = request.GetResponse()
+res_stream = response.GetResponseStream()
+reader = System.IO.StreamReader(res_stream)
+res_text = reader.ReadToEnd()
+reader.Close()
+response.Close()
+
+return json.loads(res_text)
+class AntigravityUI(forms.Form):
+def init(self):
+self.Title = "CM tools_ Staircase"
+self.ClientSize = drawing.Size(420, 410)
+self.Padding = drawing.Padding(10)
+self.Resizable = False
+
+    self.current_session_key = ""
+    self.is_processing = False
+    self.selected_images = []
+    
+    if not os.path.exists(SCRATCH_DIR):
+        os.makedirs(SCRATCH_DIR)
+
+    # --- SESSION & LICENSE LOGIC INITIALIZATION ---
+    self.session_count = 0
+    self.is_licensed = False
+
+    # --- UI COMPONENTS SETUP ---
+    self.status_label = forms.Label(Text="Ready to design.", TextAlignment=forms.TextAlignment.Center, Font=drawing.Font(drawing.SystemFont.Default, 9))
+
+    # 1. MIDDLE SECTION: PROMPT (Left) & PARAMS (Right)
+    self.prompt_box = forms.TextArea()
+    self.prompt_box.Size = drawing.Size(260, 100)
+    self.prompt_box.Text = "" 
+    
+    self.width_input = forms.NumericStepper(Value=1200.0, DecimalPlaces=1)
+    self.riser_input = forms.NumericStepper(Value=175.0, DecimalPlaces=1)
+    self.height_input = forms.NumericStepper(Value=3150.0, DecimalPlaces=1)
+    
+    param_layout = forms.DynamicLayout()
+    param_layout.Spacing = drawing.Size(5, 5)
+    param_layout.AddRow(forms.Label(Text="Width", Font=drawing.Font(drawing.SystemFont.Default, 9)), self.width_input)
+    param_layout.AddRow(forms.Label(Text="Riser", Font=drawing.Font(drawing.SystemFont.Default, 9)), self.riser_input)
+    param_layout.AddRow(forms.Label(Text="Height", Font=drawing.Font(drawing.SystemFont.Default, 9)), self.height_input)
+
+    middle_layout = forms.StackLayout(Orientation=forms.Orientation.Horizontal, Spacing=10)
+    middle_layout.Items.Add(forms.StackLayoutItem(self.prompt_box, True))
+    middle_layout.Items.Add(forms.StackLayoutItem(param_layout, False))
+
+    # 2. TIPS CAROUSEL
+    self.tips_list = [
+        "Tip: Before the first use make sure the Antigravity IDE Watcher and 30s timer is ACTIVE.",
+        "Tip: To activate the Timer, type 'start Watcher and 30s Timer' in Antigravity IDE and minimize it.",
+        "Tip: You can stop timer using STOP TIMER button.",
+        "Tip: Make sure you are using Gemini 3.1 Pro model in Antigravity IDE.",
+        "Tip: AI can make mistakes. Use the Report critical error button to resolve terrible outputs!",
+        "Tip: Please share your feedback on Ashutoshmathekar2002@gmail.com.",
+        "Tip: Read the manual and watch the video for efficient use."
+    ]
+    self.tip_index = 0
+    self.tips_label = forms.Label(Text=self.tips_list[0], TextAlignment=forms.TextAlignment.Center, Font=drawing.Font(drawing.SystemFont.Default, 9), TextColor=drawing.Color.Parse("#666666"))
+    
+    self.tip_timer = forms.UITimer()
+    self.tip_timer.Interval = 7.0 
+    self.tip_timer.Elapsed += self.update_tip
+    self.tip_timer.Start()
+
+    # 3. BUTTONS SECTION
+    btn_color = drawing.Color.Parse("#D3D3D3")
+    
+    self.run_button = forms.Button(Text="Generate")
+    self.run_button.BackgroundColor = btn_color
+    self.run_button.Font = drawing.Font(drawing.SystemFont.Default, 10)
+    self.run_button.Size = drawing.Size(130, 40)
+    self.run_button.Click += self.on_run_click
+
+    self.add_image_button = forms.Button(Text="Add Images")
+    self.add_image_button.BackgroundColor = btn_color
+    self.add_image_button.Font = drawing.Font(drawing.SystemFont.Default, 10)
+    self.add_image_button.Size = drawing.Size(130, 40)
+    self.add_image_button.Click += self.on_add_images_click
+
+    btn_row_1 = forms.StackLayout(Orientation=forms.Orientation.Horizontal, Spacing=15)
+    btn_row_1.Items.Add(forms.StackLayoutItem(None, True))
+    btn_row_1.Items.Add(self.run_button)
+    btn_row_1.Items.Add(self.add_image_button)
+    btn_row_1.Items.Add(forms.StackLayoutItem(None, True))
+
+    self.report_button = forms.Button(Text="Crit. Error")
+    self.report_button.BackgroundColor = btn_color
+    self.report_button.Size = drawing.Size(85, 35)
+    self.report_button.Click += self.on_report_click
+
+    self.no_output_button = forms.Button(Text="No Output")
+    self.no_output_button.BackgroundColor = btn_color
+    self.no_output_button.Size = drawing.Size(85, 35)
+    self.no_output_button.Click += self.on_no_output_click
+
+    self.refresh_button = forms.Button(Text="Refresh")
+    self.refresh_button.BackgroundColor = btn_color
+    self.refresh_button.Size = drawing.Size(85, 35)
+    self.refresh_button.Click += self.on_refresh_click
+
+    self.stop_button = forms.Button(Text="Stop Timer")
+    self.stop_button.BackgroundColor = btn_color
+    self.stop_button.Size = drawing.Size(85, 35)
+    self.stop_button.Click += self.on_stop_timer_click
+
+    btn_row_2 = forms.StackLayout(Orientation=forms.Orientation.Horizontal, Spacing=8)
+    btn_row_2.Items.Add(forms.StackLayoutItem(None, True))
+    btn_row_2.Items.Add(self.report_button)
+    btn_row_2.Items.Add(self.no_output_button)
+    btn_row_2.Items.Add(self.refresh_button)
+    btn_row_2.Items.Add(self.stop_button)
+    btn_row_2.Items.Add(forms.StackLayoutItem(None, True))
+
+    button_layout = forms.DynamicLayout()
+    button_layout.Spacing = drawing.Size(5, 10)
+    button_layout.AddRow(btn_row_1)
+    button_layout.AddRow(btn_row_2)
+
+    # 4. ASSEMBLE MASTER GENERATOR TAB
+    layout_gen = forms.DynamicLayout()
+    layout_gen.Padding = drawing.Padding(10)
+    layout_gen.Spacing = drawing.Size(10, 15)
+    layout_gen.AddRow(middle_layout)
+    layout_gen.AddRow(forms.Panel(BackgroundColor=drawing.Color.Parse("#D3D3D3"), Size=drawing.Size(-1, 1))) 
+    layout_gen.AddRow(self.tips_label)
+    layout_gen.AddRow(forms.Panel(BackgroundColor=drawing.Color.Parse("#D3D3D3"), Size=drawing.Size(-1, 1))) 
+    layout_gen.AddRow(button_layout)
+    layout_gen.AddRow(None)
+    layout_gen.AddRow(self.status_label)
+
+    # --- TAB 2 & 3: LICENSE & REQUEST ---
+    self.license_box = forms.TextBox(PlaceholderText="Enter License Key (e.g. UPSTACK-2026)")
+    self.validate_button = forms.Button(Text="Validate & Lock to this PC")
+    self.validate_button.Click += self.on_validate_click
+    
+    layout_lic = forms.DynamicLayout()
+    layout_lic.Padding = drawing.Padding(20)
+    layout_lic.Spacing = drawing.Size(5, 10)
+    layout_lic.AddRow(forms.Label(Text="Software Licensing", Font=drawing.Font(drawing.SystemFont.Default, 14)))
+    layout_lic.AddRow(None)
+    layout_lic.AddRow(forms.Label(Text="Enter your product key to unlock the generator.\nLicenses are permanently node-locked to your machine hardware."))
+    layout_lic.AddRow(None)
+    layout_lic.AddRow(self.license_box)
+    layout_lic.AddRow(self.validate_button)
+    layout_lic.AddRow(None)
+
+    instructions_text = forms.Label(
+        Text="To request a commercial or beta license key,\nplease reach out to the developer directly at:\n\nashutoshmathekar2002@gmail.com",
+        TextAlignment=forms.TextAlignment.Center
+    )
+    layout_req = forms.DynamicLayout()
+    layout_req.Padding = drawing.Padding(20)
+    layout_req.AddRow(None)
+    layout_req.AddRow(instructions_text)
+    layout_req.AddRow(None)
+
+    # --- TABS SETUP ---
+    self.tabs = forms.TabControl()
+    self.tabs.Pages.Add(forms.TabPage(Text="Generator", Content=layout_gen))
+    self.tabs.Pages.Add(forms.TabPage(Text="License Manager", Content=layout_lic))
+    self.tabs.Pages.Add(forms.TabPage(Text="Request Key", Content=layout_req))
+    
+    self.Content = self.tabs
+    
+    self.load_license_data()
+
+# --- TIPS CAROUSEL LOGIC ---
+def update_tip(self, sender, e):
+    self.tip_index += 1
+    if self.tip_index >= len(self.tips_list):
+        self.tip_index = 0
+    def invoke():
+        self.tips_label.Text = self.tips_list[self.tip_index]
+    Rhino.RhinoApp.InvokeOnUiThread(System.Action(invoke))
+
+# --- NATIVE UI FOR RELIABLE MULTI-SELECT ---
+def on_add_images_click(self, sender, e):
+    fd = Rhino.UI.OpenFileDialog()
+    fd.MultiSelect = True
+    fd.Title = "Select Reference Images (Max 4)"
+    fd.Filter = "Image Files (*.png; *.jpg; *.jpeg)|*.png;*.jpg;*.jpeg"
+    
+    if fd.ShowDialog():
+        files = fd.FileNames
+        if files:
+            self.selected_images = list(files)[:4] 
+            self.add_image_button.Text = "Images Added ({})".format(len(self.selected_images))
+
+# --- SECONDARY BUTTON LOGIC ---
+def on_refresh_click(self, sender, e):
+    self.prompt_box.Text = ""
+    self.selected_images = []
+    self.add_image_button.Text = "Add Images"
+    self.update_status("Inputs refreshed.")
+
+def on_stop_timer_click(self, sender, e):
+    if self.is_processing:
+        self.update_status("Cannot stop timer while generation is running.")
+        return
+        
+    try:
+        if os.path.exists(PAYLOAD_FILE):
+            os.remove(PAYLOAD_FILE)
+        
+        with open(PAYLOAD_FILE, "w") as f:
+            json.dump({"command": "stop_timer"}, f, indent=2)
+            
+        self.update_status("Sent Stop Timer signal to Antigravity IDE.")
+    except Exception as ex:
+        self.update_status("Error stopping timer: {}".format(ex))
+
+# --- LICENSE MANAGEMENT ---
+def load_license_data(self):
+    if os.path.exists(LICENSE_FILE):
+        try:
+            with open(LICENSE_FILE, "r") as f:
+                data = json.load(f)
+                self.current_session_key = data.get("key", "")
+                self.session_count = data.get("sessions", 0)
+                
+                if self.current_session_key and self.session_count < 1000:
+                    self.is_licensed = True
+                    self.session_count += 1
+                    self.save_license_data()
+                    self.lock_license_tab()
+                    self.run_button.Enabled = True
+                    self.report_button.Enabled = True
+                    self.no_output_button.Enabled = True
+                else:
+                    self.is_licensed = False
+                    self.session_count = 0
+                    self.run_button.Enabled = False
+                    self.report_button.Enabled = False
+                    self.no_output_button.Enabled = False
+        except:
+            pass
+
+def save_license_data(self):
+    with open(LICENSE_FILE, "w") as f:
+        json.dump({"key": self.current_session_key, "sessions": self.session_count}, f)
+
+def lock_license_tab(self):
+    self.license_box.Enabled = False
+    self.validate_button.Enabled = False
+    sessions_left = 1001 - self.session_count
+    self.license_box.PlaceholderText = "Active! ({} sessions remaining)".format(sessions_left)
+    self.license_box.Text = ""
+
+def on_validate_click(self, sender, e):
+    key_input = self.license_box.Text
+    if not key_input: return
+    
+    try:
+        payload = {
+            "key": key_input,
+            "machine_id": get_machine_id()
+        }
+        
+        result = make_dotnet_request(LICENSE_URL, payload)
+        
+        if result.get("status") == "valid":
+            self.current_session_key = key_input
+            self.session_count = 1
+            self.is_licensed = True
+            self.save_license_data()
+            self.lock_license_tab()
+            self.run_button.Enabled = True
+            self.report_button.Enabled = True
+            self.no_output_button.Enabled = True
+            Rhino.UI.Dialogs.ShowMessage("License Validated! Locked to this machine.", "Success")
+        else:
+            Rhino.UI.Dialogs.ShowMessage(result.get("message", "Invalid or Expired Key."), "Error")
+            
+    except Exception as err:
+        Rhino.UI.Dialogs.ShowMessage("Could not connect to License Server.\n{}".format(err), "Network Error")
+
+# --- UI UPDATE HELPER ---
+def update_status(self, text):
+    def invoke():
+        self.status_label.Text = text
+    Rhino.RhinoApp.InvokeOnUiThread(System.Action(invoke))
+
+# --- EXECUTION LOGIC ---
+def on_run_click(self, sender, e):
+    self.run_button.Enabled = False
+    self.report_button.Enabled = False
+    self.no_output_button.Enabled = False
+    self.stop_button.Enabled = False 
+    self.is_processing = True
+    
+    if os.path.exists(DONE_FLAG): os.remove(DONE_FLAG)
+    if os.path.exists(ERROR_FLAG): os.remove(ERROR_FLAG)
+
+    prompt_text = self.prompt_box.Text
+    w_val = self.width_input.Value
+    r_val = self.riser_input.Value
+    h_val = self.height_input.Value
+    img_paths = self.selected_images
+
+    thread = threading.Thread(target=self.process_request, args=(prompt_text, None, w_val, r_val, h_val, img_paths, 1))
+    thread.start()
+
+def on_report_click(self, sender, e):
+    self.run_button.Enabled = False
+    self.report_button.Enabled = False
+    self.no_output_button.Enabled = False
+    self.stop_button.Enabled = False
+    self.is_processing = True
+    
+    if os.path.exists(DONE_FLAG): os.remove(DONE_FLAG)
+    if os.path.exists(ERROR_FLAG): os.remove(ERROR_FLAG)
+
+    prompt_text = self.prompt_box.Text
+    w_val = self.width_input.Value
+    r_val = self.riser_input.Value
+    h_val = self.height_input.Value
+    img_paths = self.selected_images
+    
+    bad_feedback = "USER REPORTED BAD OUTPUT: The previously generated geometry was completely wrong, physically impossible, or not a staircase. Review the previous code, strictly re-evaluate the reference images, read the original prompt again carefully, and generate a completely corrected version from scratch."
+
+    thread = threading.Thread(target=self.process_request, args=(prompt_text, bad_feedback, w_val, r_val, h_val, img_paths, 1))
+    thread.start()
+
+def on_no_output_click(self, sender, e):
+    self.run_button.Enabled = False
+    self.report_button.Enabled = False
+    self.no_output_button.Enabled = False
+    self.stop_button.Enabled = False
+    self.is_processing = True
+    
+    if os.path.exists(DONE_FLAG): os.remove(DONE_FLAG)
+    if os.path.exists(ERROR_FLAG): os.remove(ERROR_FLAG)
+
+    prompt_text = self.prompt_box.Text
+    w_val = self.width_input.Value
+    r_val = self.riser_input.Value
+    h_val = self.height_input.Value
+    img_paths = self.selected_images
+    
+    no_output_feedback = "USER REPORTED NO OUTPUT: The script executed but no geometry appeared in the viewport. Ensure you are actually baking the geometry to the document using scriptcontext.doc.Objects.Add... and redraw the view."
+
+    thread = threading.Thread(target=self.process_request, args=(prompt_text, no_output_feedback, w_val, r_val, h_val, img_paths, 1))
+    thread.start()
+
+def process_request(self, prompt, error_feedback, w_val, r_val, h_val, img_paths, attempt):
+    if attempt > 5:
+        self.update_status("Max attempts reached. AI could not fix the error.")
+        self.reenable_run()
+        return
+        
+    try:
+        if error_feedback:
+            if "USER REPORTED" in error_feedback:
+                self.update_status("Sending User Report to Antigravity IDE...")
+            else:
+                self.update_status("Attempt {}/5: Sending Python error back to AI...".format(attempt))
+        else:
+            self.update_status("analyzing...")
+            
+        time.sleep(0.5) 
+        self.update_status("sending the request...")
+        
+        safe_error_flag = ERROR_FLAG.replace("\\", "\\\\")
+        safe_done_flag = DONE_FLAG.replace("\\", "\\\\")
+        
+        error_injection = """
+        
+        CRITICAL SYSTEM INSTRUCTION:
+        You MUST structure your Python script exactly like the boilerplate below. 
+        Put all your logic inside the 'build_geometry()' function. DO NOT deviate from this layout, or Rhino will crash.
+        
+        import traceback
+        import rhinoscriptsyntax as rs
+        import scriptcontext as sc
+        import Rhino
+
+        def build_geometry():
+            # --- YOUR GENERATED CODE GOES HERE ---
+            pass
+
+        try:
+            build_geometry()
+            with open(r'{done}', 'w') as f: f.write('success')
+        except Exception as e:
+            with open(r'{error}', 'w') as f: f.write(traceback.format_exc())
+        """.format(done=safe_done_flag, error=safe_error_flag)
+        
+        enhanced_prompt = prompt + error_injection
+        
+        payload = {
+            "session_id": "Session_UI",
+            "user_prompt": enhanced_prompt,
+            "previous_error": error_feedback if error_feedback else "",
+            "dimensions": {
+                "tread_width": w_val,
+                "riser_height": r_val,
+                "total_height": h_val
+            },
+            "images": img_paths
+        }
+        
+        res_server_body = make_dotnet_request(GENERATE_URL, payload, timeout_ms=120000)
+        instructions = res_server_body.get("antigravity_instructions")
+        
+        self.update_status("Executing the request (2/3) - Updating Payload...")
+        
+        if os.path.exists(PAYLOAD_FILE):
+            try:
+                os.remove(PAYLOAD_FILE)
+                time.sleep(0.2) 
+            except Exception as e:
+                pass
+        
+        with open(PAYLOAD_FILE, "w") as f:
+            json.dump({
+                "session_id": "Session_UI", 
+                "prompt_instructions": instructions,
+                "images": img_paths
+            }, f, indent=2)
+        
+        self.update_status("Executing the request (3/3)")
+        time.sleep(0.5)
+        
+        self.update_status("waiting for Antigravity IDE...")
+        self.watch_for_completion(prompt, w_val, r_val, h_val, img_paths, attempt)
+
+    except Exception as e:
+        self.update_status("Error in sending stage: {}".format(e))
+        self.reenable_run()
+
+def watch_for_completion(self, prompt, w_val, r_val, h_val, img_paths, attempt):
+    timeout = 600 
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        if os.path.exists(ERROR_FLAG):
+            time.sleep(0.5) 
+            with open(ERROR_FLAG, "r") as f:
+                err_msg = f.read()
+            
+            self.update_status("Python error caught! Fixing (Attempt {}/5)...".format(attempt))
+            os.remove(ERROR_FLAG)
+            if os.path.exists(DONE_FLAG):
+                os.remove(DONE_FLAG) 
+            
+            time.sleep(1)
+            self.process_request(prompt, err_msg, w_val, r_val, h_val, img_paths, attempt + 1)
+            return
+            
+        if os.path.exists(DONE_FLAG):
+            self.update_status("The script has been successfully executed.")
+            os.remove(DONE_FLAG)
+            self.reenable_run()
+            return
+            
+        time.sleep(1)
+        
+    self.update_status("Error: Antigravity IDE timeout after 10 minutes.")
+    self.reenable_run()
+
+def reenable_run(self):
+    def invoke():
+        self.run_button.Enabled = True
+        self.report_button.Enabled = True
+        self.no_output_button.Enabled = True
+        self.stop_button.Enabled = True
+        self.is_processing = False
+    Rhino.RhinoApp.InvokeOnUiThread(System.Action(invoke))
+def run_dialog():
+dialog = AntigravityUI()
+dialog.Owner = Rhino.UI.RhinoEtoApp.MainWindow
+dialog.Show()
+
+if name == "main":
+run_dialog()
